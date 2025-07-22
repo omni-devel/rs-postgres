@@ -30,6 +30,9 @@ pub struct Settings {
     pub scale_factor: f32,
     pub theme: Theme,
     pub language: Language,
+    pub openai_model: String,
+    pub openai_base_url: String,
+    pub openai_token: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -67,7 +70,14 @@ impl Theme {
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { scale_factor: 1.125, theme: Theme::NotInited, language: Language::English }
+        Self {
+            scale_factor: 1.125,
+            theme: Theme::NotInited,
+            language: Language::English,
+            openai_model: String::from("gpt-4.1-mini"),
+            openai_base_url: String::from("https://api.openai.com/v1"),
+            openai_token: String::from("sk-xxxXXX12345"),
+        }
     }
 }
 
@@ -153,6 +163,22 @@ impl Default for LoginWindow {
             clear_storage: false,
             password: String::new(),
             error: None,
+        }
+    }
+}
+
+pub struct OpenAIProperties {
+    pub model: String,
+    pub base_url: String,
+    pub token: String,
+}
+
+impl Default for OpenAIProperties {
+    fn default() -> Self {
+        Self {
+            model: String::new(),
+            base_url: String::new(),
+            token: String::new(),
         }
     }
 }
@@ -309,4 +335,19 @@ pub enum SelectFileDialogAction {
     SaveFile,
     OpenFile,
     ExportToCsv,
+}
+
+#[derive(Deserialize, Clone)]
+pub struct OpenAIResponse {
+    pub choices: Vec<OpenAIChoice>,
+}
+
+#[derive(Deserialize, Clone)]
+pub struct OpenAIChoice {
+    pub message: OpenAIMessage,
+}
+
+#[derive(Deserialize, Clone)]
+pub struct OpenAIMessage {
+    pub content: String,
 }

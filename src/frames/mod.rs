@@ -3,6 +3,7 @@ mod debug;
 
 use crate::data::*;
 use crate::database;
+use crate::llm;
 use crate::utils;
 
 use eframe::{egui, App};
@@ -40,6 +41,7 @@ pub struct Main<'a> {
     sql_response_copy_window: structs::SQLResponseCopyWindow,
     settings_window: structs::SettingsWindow,
     login_window: structs::LoginWindow,
+    openai_properties: structs::OpenAIProperties,
     change_password_window: structs::ChangePasswordWindow,
     icons: structs::Icons<'a>,
     runtime: tokio::runtime::Runtime,
@@ -47,6 +49,9 @@ pub struct Main<'a> {
     actions: Vec<structs::Action>,
     password: Option<String>,
     select_file_dialog: FileDialog,
+    is_ai_generate_show: bool,
+    ai_generate_prompt: String,
+    ai_generation_error: Option<String>,
     select_file_dialog_action: Option<structs::SelectFileDialogAction>,
     trans: translates::Translator,
     frame_history: debug::FrameHistory,
@@ -70,6 +75,7 @@ impl Main<'_> {
             edit_server_window: structs::EditServerWindow::default(),
             sql_response_copy_window: structs::SQLResponseCopyWindow::default(),
             login_window: structs::LoginWindow::default(),
+            openai_properties: structs::OpenAIProperties::default(),
             settings_window: structs::SettingsWindow::default(),
             change_password_window: structs::ChangePasswordWindow::default(),
             icons: structs::Icons {
@@ -83,6 +89,9 @@ impl Main<'_> {
             password: None,
             select_file_dialog: FileDialog::new(),
             select_file_dialog_action: None,
+            is_ai_generate_show: false,
+            ai_generate_prompt: String::new(),
+            ai_generation_error: None,
             trans: translates::Translator::new(translates::Language::English),
             frame_history: debug::FrameHistory::default(),
             debug,
@@ -126,6 +135,10 @@ impl Main<'_> {
             config.settings.theme = structs::Theme::Dark;
             write_config = true;
         }
+
+        self.openai_properties.model = config.settings.openai_model.clone();
+        self.openai_properties.base_url = config.settings.openai_base_url.clone();
+        self.openai_properties.token = config.settings.openai_token.clone();
 
         if write_config {
             std_fs::write(
@@ -795,6 +808,24 @@ impl Main<'_> {
                                 self.change_password_window.show = true;
                                 self.settings_window = structs::SettingsWindow::default();
                             }
+                            ui.end_row();
+
+                            ui.label(self.trans.openai_model());
+                            TextEdit::singleline(&mut self.openai_properties.model).background_color(
+                                self.config.settings.theme.text_input_color()
+                            ).show(ui);
+                            ui.end_row();
+
+                            ui.label(self.trans.openai_base_url());
+                            TextEdit::singleline(&mut self.openai_properties.base_url).background_color(
+                                self.config.settings.theme.text_input_color()
+                            ).show(ui);
+                            ui.end_row();
+
+                            ui.label(self.trans.openai_token());
+                            TextEdit::singleline(&mut self.openai_properties.token).background_color(
+                                self.config.settings.theme.text_input_color()
+                            ).password(true).show(ui);
                         });
 
                 ui.with_layout(Layout::top_down(Align::RIGHT), |ui| {
@@ -805,6 +836,10 @@ impl Main<'_> {
                             self.config.settings.scale_factor = self.settings_window.scale_factor;
                             self.config.settings.theme = self.settings_window.theme.clone();
                             self.config.settings.language = self.settings_window.language.clone().unwrap();
+
+                            self.config.settings.openai_model = self.openai_properties.model.clone();
+                            self.config.settings.openai_base_url = self.openai_properties.base_url.clone();
+                            self.config.settings.openai_token = self.openai_properties.token.clone();
 
                             self.settings_window = structs::SettingsWindow::default();
 
@@ -1025,6 +1060,12 @@ impl Main<'_> {
                                         self.select_file_dialog.save_file();
                                     }
 
+                                    if ui.add(Button::new(self.trans.generate())).clicked() || (ui.input(|i| i.modifiers.ctrl && i.key_pressed(Key::I))) {
+                                        self.is_ai_generate_show = !self.is_ai_generate_show;
+                                        self.ai_generate_prompt = String::new();
+                                        self.ai_generation_error = None;
+                                    }
+
                                     self.select_file_dialog.update(ctx);
 
                                     if let Some(action) = &self.select_file_dialog_action {
@@ -1078,6 +1119,45 @@ impl Main<'_> {
                                             self.config.settings.theme.text_input_color()
                                         ));
                                     });
+                                }
+
+                                ui.add_space(8.0);
+
+                                if self.is_ai_generate_show {
+                                    TextEdit::multiline(&mut self.ai_generate_prompt)
+                                        .font(egui::TextStyle::Monospace)
+                                        .code_editor()
+                                        .desired_width(f32::INFINITY)
+                                        .desired_rows(3)
+                                        .background_color(self.config.settings.theme.text_input_color())
+                                        .hint_text(self.trans.generate_hint())
+                                        .show(ui);
+
+                                    if ui.button(self.trans.generate_sql()).clicked() {
+                                        let response = llm::generate_text(
+                                            &format!("{}\n\nUser's input: ```sql\n{}\n```", self.ai_generate_prompt, sqlquery_page.code),
+                                            &self.config.settings.openai_model,
+                                            &self.config.settings.openai_base_url,
+                                            &self.config.settings.openai_token,
+                                        );
+
+                                        match response {
+                                            Ok(response) => {
+                                                sqlquery_page.code = response;
+                                                self.ai_generation_error = None;
+                                            },
+                                            Err(error) => {
+                                                self.ai_generation_error = Some(error);
+                                            },
+                                        };
+                                    }
+
+                                    match &self.ai_generation_error {
+                                        Some(error) => {
+                                            ui.add(Label::new(RichText::new(error).color(Color32::RED)));
+                                        },
+                                        None => { },
+                                    };
                                 }
 
                                 ui.add_space(8.0);

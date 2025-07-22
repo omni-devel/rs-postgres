@@ -556,4 +556,45 @@ impl Translator {
         }
     }
 
+    pub fn openai_model(&self) -> String {
+        match self.language {
+            Language::English => "OpenAI model".to_string(),
+            Language::Russian => "OpenAI модель".to_string(),
+        }
+    }
+
+    pub fn openai_base_url(&self) -> String {
+        match self.language {
+            Language::English => "OpenAI base URL".to_string(),
+            Language::Russian => "Базовый путь OpenAI".to_string(),
+        }
+    }
+
+    pub fn openai_token(&self) -> String {
+        match self.language {
+            Language::English => "OpenAI token".to_string(),
+            Language::Russian => "OpenAI токен".to_string(),
+        }
+    }
+
+    pub fn generate(&self) -> String {
+        match self.language {
+            Language::English => "Generate (Ctrl+i)".to_string(),
+            Language::Russian => "Сгенерировать (Ctrl+i)".to_string(),
+        }
+    }
+
+    pub fn generate_sql(&self) -> String {
+        match self.language {
+            Language::English => "Generate SQL".to_string(),
+            Language::Russian => "Сгенерировать SQL".to_string(),
+        }
+    }
+
+    pub fn generate_hint(&self) -> String {
+        match self.language {
+            Language::English => "Write a script that will retrieve the first 150 rows using the following regex for the `log` column: Version: `\\d+\\.\\d+\\.\\d+.`".to_string(),
+            Language::Russian => "Напиши скрипт, который будет получать первые 150 строк с использованием следующей регулярки для колонки `log`: `Version: \\d+\\.\\d+\\.\\d+`.".to_string(),
+        }
+    }
 }

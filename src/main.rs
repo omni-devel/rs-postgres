@@ -2,6 +2,7 @@ mod frames;
 mod data;
 mod utils;
 mod database;
+mod llm;
 
 use eframe::NativeOptions;
 use env_logger::Builder;
