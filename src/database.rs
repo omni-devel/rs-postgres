@@ -28,7 +28,7 @@ impl Database {
     }
 
     pub async fn get_tables(&self) -> Result<Vec<String>, String> {
-        let rows = sqlx::query("SELECT tablename FROM pg_tables WHERE schemaname NOT IN ('pg_catalog', 'information_schema') AND schemaname NOT LIKE 'pg_%'")
+        let rows = sqlx::query("SELECT tablename FROM pg_tables WHERE schemaname NOT IN ('pg_catalog', 'information_schema') AND schemaname NOT LIKE 'pg_%' ORDER BY tablename")
             .fetch_all(&self.pool)
             .await
             .map_err(|e| e.to_string())?;
@@ -42,7 +42,7 @@ impl Database {
     }
 
     pub async fn get_databases(&self) -> Result<Vec<String>, String> {
-        let rows = sqlx::query("SELECT datname FROM pg_database")
+        let rows = sqlx::query("SELECT datname FROM pg_database ORDER BY datname")
             .fetch_all(&self.pool)
             .await
             .map_err(|e| e.to_string())?;
