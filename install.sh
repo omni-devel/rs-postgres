@@ -31,12 +31,24 @@ if ! command -v cargo &> /dev/null; then
 fi
 
 if [ ! -d ~/.local/share/applications/ ]; then
-    echo "~/.local/share/applications/ does not exist."
+    echo "~/.local/share/applications/ does not exists. Do you want to create it? (y/n)"
+    if [ "$install_cargo" = "y" ]; then
+        mkdir -p ~/.local/share/applications/
+    else
+        echo "~/.local/share/applications/ does not exists. Exiting."
+        exit 1
+    fi
     exit 1
 fi
 
 if [ ! -d ~/.local/bin/ ]; then
-    echo "~/.local/bin/ does not exist."
+    echo "~/.local/bin/ does not exists. Do you want to create it? (y/n)"
+    if [ "$install_cargo" = "y" ]; then
+        mkdir -p ~/.local/bin/
+    else
+        echo "~/.local/bin/ does not exists. Exiting."
+        exit 1
+    fi
     exit 1
 fi
 
