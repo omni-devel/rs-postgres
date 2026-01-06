@@ -1,31 +1,29 @@
-mod widgets;
 mod debug;
+mod widgets;
 
 use crate::data::*;
 use crate::database;
 use crate::utils;
 
-use eframe::{egui, App};
+use crate::utils::{decrypt_string, encrypt_string};
+use eframe::{App, egui};
 use egui::TopBottomPanel;
 use egui::{
-    RichText, Modal, CentralPanel, Spinner, Layout, Align, TextEdit, Color32,
-    Button, CollapsingHeader, Id, Grid, ScrollArea, Label,
-    Key, Slider,
+    Align, Button, CentralPanel, CollapsingHeader, Color32, Grid, Id, Key, Label, Layout, Modal,
+    RichText, ScrollArea, Slider, Spinner, TextEdit,
 };
-use egui_extras::{TableBuilder, Column};
+use egui_extras::{Column, TableBuilder};
 use egui_file_dialog::FileDialog;
-use log::{info, error};
-use std::fs as std_fs;
+use indexmap::IndexMap;
+use log::{error, info};
+use serde_json;
 use std::collections::HashMap;
+use std::fs as std_fs;
+use std::fs::File;
 use std::io::Read;
 use std::io::Write;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
-use crate::utils::{encrypt_string, decrypt_string};
-use std::fs::File;
-use serde_json;
-use indexmap::IndexMap;
-
 
 struct DbManager {
     dbs: Arc<Mutex<HashMap<String, structs::DbState>>>,
@@ -73,9 +71,15 @@ impl Main<'_> {
             settings_window: structs::SettingsWindow::default(),
             change_password_window: structs::ChangePasswordWindow::default(),
             icons: structs::Icons {
-                warning_light: egui::Image::new(icons::WARNING_LIGHT).bg_fill(Color32::TRANSPARENT).max_size(egui::vec2(32.0, 32.0)),
-                warning_dark: egui::Image::new(icons::WARNING_DARK).bg_fill(Color32::TRANSPARENT).max_size(egui::vec2(32.0, 32.0)),
-                rs_postgres: egui::Image::new(icons::RS_POSTGRES).bg_fill(Color32::TRANSPARENT).max_size(egui::vec2(32.0, 32.0)),
+                warning_light: egui::Image::new(icons::WARNING_LIGHT)
+                    .bg_fill(Color32::TRANSPARENT)
+                    .max_size(egui::vec2(32.0, 32.0)),
+                warning_dark: egui::Image::new(icons::WARNING_DARK)
+                    .bg_fill(Color32::TRANSPARENT)
+                    .max_size(egui::vec2(32.0, 32.0)),
+                rs_postgres: egui::Image::new(icons::RS_POSTGRES)
+                    .bg_fill(Color32::TRANSPARENT)
+                    .max_size(egui::vec2(32.0, 32.0)),
             },
             runtime,
             pages: structs::Pages::default(),
@@ -103,7 +107,8 @@ impl Main<'_> {
             std_fs::write(
                 &config_path,
                 serde_json::to_string(&structs::Config::default()).unwrap(),
-            ).unwrap();
+            )
+            .unwrap();
         }
 
         let mut write_config = false;
@@ -113,13 +118,19 @@ impl Main<'_> {
             Ok(config) => config,
             Err(_) => {
                 let mut default_config = structs::Config::default();
-                if let Ok(mut partial_config) = serde_json::from_str::<serde_json::Value>(&config_file) {
-                    Self::merge_defaults(&mut partial_config, &serde_json::to_value(&default_config).unwrap());
-                    default_config = serde_json::from_value(partial_config).unwrap_or(default_config);
+                if let Ok(mut partial_config) =
+                    serde_json::from_str::<serde_json::Value>(&config_file)
+                {
+                    Self::merge_defaults(
+                        &mut partial_config,
+                        &serde_json::to_value(&default_config).unwrap(),
+                    );
+                    default_config =
+                        serde_json::from_value(partial_config).unwrap_or(default_config);
                 }
                 write_config = true;
                 default_config
-            },
+            }
         };
 
         if !config.settings.theme.is_inited() {
@@ -128,10 +139,7 @@ impl Main<'_> {
         }
 
         if write_config {
-            std_fs::write(
-                &config_path,
-                serde_json::to_string_pretty(&config).unwrap(),
-            ).unwrap();
+            std_fs::write(&config_path, serde_json::to_string_pretty(&config).unwrap()).unwrap();
         }
 
         self.trans.language = config.settings.language.clone();
@@ -140,7 +148,7 @@ impl Main<'_> {
 
     fn merge_defaults(current: &mut serde_json::Value, default: &serde_json::Value) {
         match (current, default) {
-            (serde_json::Value::Object(ref mut current_map), serde_json::Value::Object(default_map)) => {
+            (serde_json::Value::Object(current_map), serde_json::Value::Object(default_map)) => {
                 for (key, default_value) in default_map {
                     if !current_map.contains_key(key) {
                         current_map.insert(key.clone(), default_value.clone());
@@ -161,36 +169,38 @@ impl Main<'_> {
 
         let mut config = self.config.clone();
         config.servers.iter_mut().for_each(|server| {
-            server.password = encrypt_string(&server.password, self.password.as_ref().unwrap()).unwrap();
+            server.password =
+                encrypt_string(&server.password, self.password.as_ref().unwrap()).unwrap();
         });
 
-        std_fs::write(
-            &config_path,
-            serde_json::to_string_pretty(&config).unwrap(),
-        ).unwrap();
+        std_fs::write(&config_path, serde_json::to_string_pretty(&config).unwrap()).unwrap();
     }
 
     fn decrypt_passwords(&mut self) {
         for server in self.config.servers.iter_mut() {
             let encrypted_password = decrypt_string(
                 &server.password,
-                self.password.as_ref().unwrap_or(&"".to_string())
+                self.password.as_ref().unwrap_or(&"".to_string()),
             );
 
             match encrypted_password {
                 Ok(password) => {
                     server.password = password;
-                },
+                }
                 Err(e) => {
                     self.login_window.error = Some(format!("Incorrect password: {}", e));
 
                     return;
-                },
+                }
             }
         }
     }
 
-    async fn load_db(id: String, server: structs::Server, dbs: Arc<Mutex<HashMap<String, structs::DbState>>>) {
+    async fn load_db(
+        id: String,
+        server: structs::Server,
+        dbs: Arc<Mutex<HashMap<String, structs::DbState>>>,
+    ) {
         info!("Starting to load database for server {}", server.ip);
         let database_url = format!(
             "postgres://{}:{}@{}:{}/{}",
@@ -213,18 +223,19 @@ impl Main<'_> {
                             let tables = database.get_tables().await;
 
                             if let Ok(tables) = tables {
-                                databases.push(
-                                    structs::LoadedDatabase {
-                                        name: name.clone(),
-                                        database,
-                                        tables,
-                                    }
-                                );
+                                databases.push(structs::LoadedDatabase {
+                                    name: name.clone(),
+                                    database,
+                                    tables,
+                                });
                             } else if let Err(e) = tables {
                                 error!("Error loading tables for database {}: {}", name, e);
                             }
                         } else if let Err(e) = database {
-                            error!("Error loading database for server {} ({}): {}", server.ip, name, e);
+                            error!(
+                                "Error loading database for server {} ({}): {}",
+                                server.ip, name, e
+                            );
                         }
                     }
 
@@ -244,7 +255,10 @@ impl Main<'_> {
         }
     }
 
-    fn get_sql_query_slice(result: &IndexMap<String, Vec<structs::ValueType>>, page_index: u32) -> IndexMap<String, Vec<structs::ValueType>> {
+    fn get_sql_query_slice(
+        result: &IndexMap<String, Vec<structs::ValueType>>,
+        page_index: u32,
+    ) -> IndexMap<String, Vec<structs::ValueType>> {
         let total_rows = result.values().next().map_or(0, |v| v.len());
         let pages_count = (total_rows as f32 / ROWS_PER_PAGE as f32).ceil() as u32;
 
@@ -267,7 +281,11 @@ impl Main<'_> {
         current_page
     }
 
-    async fn fetch_sql_query(database: database::Database, code: &str, sql_query_execution_status: Option<Arc<Mutex<structs::SQLQueryExecutionStatusType>>>) {
+    async fn fetch_sql_query(
+        database: database::Database,
+        code: &str,
+        sql_query_execution_status: Option<Arc<Mutex<structs::SQLQueryExecutionStatusType>>>,
+    ) {
         let start_time = Instant::now();
         let result = database.execute_query(&code).await;
         let execution_time = start_time.elapsed().as_millis() as u64;
@@ -276,11 +294,16 @@ impl Main<'_> {
             Ok(result) => {
                 let pages_count = match result.is_empty() {
                     true => 0,
-                    false => (result.values().next().unwrap().len() as f32 / ROWS_PER_PAGE as f32).ceil() as u32,
+                    false => (result.values().next().unwrap().len() as f32 / ROWS_PER_PAGE as f32)
+                        .ceil() as u32,
                 };
                 let rows_count = result.values().next().map_or(0, |v| v.len()) as u32;
 
-                log::debug!("fetch_sql_query: rows_count={}, pages_count={}", rows_count, pages_count);
+                log::debug!(
+                    "fetch_sql_query: rows_count={}, pages_count={}",
+                    rows_count,
+                    pages_count
+                );
 
                 structs::SQLQueryExecutionStatusType::Success(structs::SQLQueryExecutionSuccess {
                     result: result.clone(),
@@ -294,7 +317,7 @@ impl Main<'_> {
                     execution_time: execution_time,
                     page_index: 0,
                 })
-            },
+            }
             Err(e) => structs::SQLQueryExecutionStatusType::Error(e.to_string()),
         };
 
@@ -327,9 +350,7 @@ impl Main<'_> {
                 let mut record = Vec::with_capacity(data.len());
 
                 for col in data.values() {
-                    let value = col.get(i)
-                        .map(|v| v.to_string())
-                        .unwrap_or_default();
+                    let value = col.get(i).map(|v| v.to_string()).unwrap_or_default();
                     record.push(value);
                 }
 
@@ -340,7 +361,11 @@ impl Main<'_> {
         wtr.flush().unwrap();
     }
 
-    async fn reload_server(index: usize, config: structs::Config, dbs: Arc<Mutex<HashMap<String, structs::DbState>>>) {
+    async fn reload_server(
+        index: usize,
+        config: structs::Config,
+        dbs: Arc<Mutex<HashMap<String, structs::DbState>>>,
+    ) {
         let server = &config.servers[index];
         let id = format!("server:{}:{}:{}", server.ip, server.port, server.user);
 
@@ -370,7 +395,7 @@ impl Main<'_> {
                                 Ok(db_connection) => {
                                     let tables = match db_connection.get_tables().await {
                                         Ok(tables) => tables,
-                                        Err(_) => Vec::new()
+                                        Err(_) => Vec::new(),
                                     };
 
                                     loaded_databases.push(structs::LoadedDatabase {
@@ -378,7 +403,7 @@ impl Main<'_> {
                                         database: db_connection,
                                         tables,
                                     });
-                                },
+                                }
                                 Err(_) => {
                                     loaded_databases.push(structs::LoadedDatabase {
                                         name: db_name,
@@ -409,129 +434,165 @@ impl Main<'_> {
 
     fn update_windows(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         if self.add_server_window.show {
-            Modal::new(Id::new("add_server_modal"))
-                .show(ctx, |ui| {
-                    widgets::modal_label(ui, self.trans.add_server());
+            Modal::new(Id::new("add_server_modal")).show(ctx, |ui| {
+                widgets::modal_label(ui, self.trans.add_server());
 
-                    Grid::new("server_form")
-                        .num_columns(2)
-                        .spacing([40.0, 4.0])
-                        .striped(true)
-                        .show(ui, |ui| {
-                            let input_color = self.config.settings.theme.text_input_color();
+                Grid::new("server_form")
+                    .num_columns(2)
+                    .spacing([40.0, 4.0])
+                    .striped(true)
+                    .show(ui, |ui| {
+                        let input_color = self.config.settings.theme.text_input_color();
 
-                            ui.label(self.trans.name());
-                            ui.add(TextEdit::singleline(&mut self.add_server_window.name_field).background_color(input_color));
-                            ui.end_row();
+                        ui.label(self.trans.name());
+                        ui.add(
+                            TextEdit::singleline(&mut self.add_server_window.name_field)
+                                .background_color(input_color),
+                        );
+                        ui.end_row();
 
-                            ui.label(self.trans.server_address());
-                            ui.add(TextEdit::singleline(&mut self.add_server_window.ip_field).background_color(input_color));
-                            ui.end_row();
+                        ui.label(self.trans.server_address());
+                        ui.add(
+                            TextEdit::singleline(&mut self.add_server_window.ip_field)
+                                .background_color(input_color),
+                        );
+                        ui.end_row();
 
-                            ui.label(self.trans.port());
-                            let is_error = self.add_server_window.port_field.parse::<u16>().is_err();
-                            let mut field = TextEdit::singleline(&mut self.add_server_window.port_field);
-                            if is_error {
-                                field = field.text_color(Color32::from_rgb(255, 0, 0));
-                            }
-                            ui.add(field.background_color(input_color));
-                            ui.end_row();
-
-                            ui.label(self.trans.user());
-                            ui.add(TextEdit::singleline(&mut self.add_server_window.user_field).background_color(input_color));
-                            ui.end_row();
-
-                            ui.label(self.trans.password());
-                            ui.add(TextEdit::singleline(&mut self.add_server_window.password_field).background_color(input_color));
-                            ui.end_row();
-
-                            ui.label(self.trans.service_database());
-                            ui.add(TextEdit::singleline(&mut self.add_server_window.service_database_field).background_color(input_color));
-                            ui.end_row();
-                        });
-
-                    let is_name_error = {
-                        if self.add_server_window.name_field.is_empty() {
-                            ui.label(self.trans.name_is_required());
-                            true
-                        } else if self.add_server_window.name_field.chars().count() > 32 {
-                            ui.label(self.trans.name_must_be_less_than_32_characters());
-                            true
-                        } else if self.config.servers.iter().any(|server| server.alias == self.add_server_window.name_field) {
-                            ui.label(self.trans.name_must_be_unique());
-                            true
-                        } else {
-                            false
+                        ui.label(self.trans.port());
+                        let is_error = self.add_server_window.port_field.parse::<u16>().is_err();
+                        let mut field =
+                            TextEdit::singleline(&mut self.add_server_window.port_field);
+                        if is_error {
+                            field = field.text_color(Color32::from_rgb(255, 0, 0));
                         }
-                    };
-                    let is_ip_error = {
-                        if self.add_server_window.ip_field.is_empty() {
-                            ui.label(self.trans.ip_is_required());
-                            true
-                        } else {
-                            false
-                        }
-                    };
-                    let is_port_error = {
-                        if self.add_server_window.port_field.parse::<u16>().is_err() {
-                            ui.label(self.trans.incorrect_port_value());
-                            true
-                        } else {
-                            false
-                        }
-                    };
-                    let is_user_error = {
-                        if self.add_server_window.user_field.is_empty() {
-                            ui.label(self.trans.user_is_required());
-                            true
-                        } else {
-                            false
-                        }
-                    };
-                    let is_service_database_error = {
-                        if self.add_server_window.service_database_field.is_empty() {
-                            ui.label(self.trans.service_database_is_required());
-                            true
-                        } else {
-                            false
-                        }
-                    };
+                        ui.add(field.background_color(input_color));
+                        ui.end_row();
 
-                    let enable_save_button = !is_name_error && !is_ip_error && !is_port_error && !is_user_error && !is_service_database_error;
+                        ui.label(self.trans.user());
+                        ui.add(
+                            TextEdit::singleline(&mut self.add_server_window.user_field)
+                                .background_color(input_color),
+                        );
+                        ui.end_row();
 
-                    ui.with_layout(Layout::top_down(Align::RIGHT), |ui| {
-                        ui.separator();
+                        ui.label(self.trans.password());
+                        ui.add(
+                            TextEdit::singleline(&mut self.add_server_window.password_field)
+                                .background_color(input_color),
+                        );
+                        ui.end_row();
 
-                        ui.horizontal(|ui| {
-                            if ui.add_enabled(enable_save_button, Button::new(self.trans.save())).clicked() {
-                                let server = structs::Server {
-                                    alias: self.add_server_window.name_field.clone(),
-                                    ip: self.add_server_window.ip_field.clone(),
-                                    port: self.add_server_window.port_field.parse::<u16>().unwrap(),
-                                    user: self.add_server_window.user_field.clone(),
-                                    password: self.add_server_window.password_field.clone(),
-                                    service_database: self.add_server_window.service_database_field.clone(),
-                                };
-                                self.config.servers.push(server);
-                                self.save_config();
-                                self.add_server_window = structs::AddServerWindow::default();
-                            }
-                            if ui.button(self.trans.back()).clicked() {
-                                self.add_server_window = structs::AddServerWindow::default();
-                            }
-                        });
+                        ui.label(self.trans.service_database());
+                        ui.add(
+                            TextEdit::singleline(
+                                &mut self.add_server_window.service_database_field,
+                            )
+                            .background_color(input_color),
+                        );
+                        ui.end_row();
+                    });
+
+                let is_name_error = {
+                    if self.add_server_window.name_field.is_empty() {
+                        ui.label(self.trans.name_is_required());
+                        true
+                    } else if self.add_server_window.name_field.chars().count() > 32 {
+                        ui.label(self.trans.name_must_be_less_than_32_characters());
+                        true
+                    } else if self
+                        .config
+                        .servers
+                        .iter()
+                        .any(|server| server.alias == self.add_server_window.name_field)
+                    {
+                        ui.label(self.trans.name_must_be_unique());
+                        true
+                    } else {
+                        false
+                    }
+                };
+                let is_ip_error = {
+                    if self.add_server_window.ip_field.is_empty() {
+                        ui.label(self.trans.ip_is_required());
+                        true
+                    } else {
+                        false
+                    }
+                };
+                let is_port_error = {
+                    if self.add_server_window.port_field.parse::<u16>().is_err() {
+                        ui.label(self.trans.incorrect_port_value());
+                        true
+                    } else {
+                        false
+                    }
+                };
+                let is_user_error = {
+                    if self.add_server_window.user_field.is_empty() {
+                        ui.label(self.trans.user_is_required());
+                        true
+                    } else {
+                        false
+                    }
+                };
+                let is_service_database_error = {
+                    if self.add_server_window.service_database_field.is_empty() {
+                        ui.label(self.trans.service_database_is_required());
+                        true
+                    } else {
+                        false
+                    }
+                };
+
+                let enable_save_button = !is_name_error
+                    && !is_ip_error
+                    && !is_port_error
+                    && !is_user_error
+                    && !is_service_database_error;
+
+                ui.with_layout(Layout::top_down(Align::RIGHT), |ui| {
+                    ui.separator();
+
+                    ui.horizontal(|ui| {
+                        if ui
+                            .add_enabled(enable_save_button, Button::new(self.trans.save()))
+                            .clicked()
+                        {
+                            let server = structs::Server {
+                                alias: self.add_server_window.name_field.clone(),
+                                ip: self.add_server_window.ip_field.clone(),
+                                port: self.add_server_window.port_field.parse::<u16>().unwrap(),
+                                user: self.add_server_window.user_field.clone(),
+                                password: self.add_server_window.password_field.clone(),
+                                service_database: self
+                                    .add_server_window
+                                    .service_database_field
+                                    .clone(),
+                            };
+                            self.config.servers.push(server);
+                            self.save_config();
+                            self.add_server_window = structs::AddServerWindow::default();
+                        }
+                        if ui.button(self.trans.back()).clicked() {
+                            self.add_server_window = structs::AddServerWindow::default();
+                        }
                     });
                 });
+            });
         }
 
         if self.delete_server_window.show {
             if let Some(server) = &self.delete_server_window.server {
-                let needed_id_string = format!("server:{}:{}:{}", server.ip, server.port, server.user);
+                let needed_id_string =
+                    format!("server:{}:{}:{}", server.ip, server.port, server.user);
                 let mut idx_to_delete: Option<usize> = None;
 
                 for server_idx in 0..self.config.servers.len() {
                     let server_in_find = &self.config.servers[server_idx];
-                    let id_string = format!("server:{}:{}:{}", server_in_find.ip, server_in_find.port, server_in_find.user);
+                    let id_string = format!(
+                        "server:{}:{}:{}",
+                        server_in_find.ip, server_in_find.port, server_in_find.user
+                    );
 
                     if needed_id_string == id_string {
                         idx_to_delete = Some(server_idx);
@@ -551,10 +612,12 @@ impl Main<'_> {
                                 if ui.button(self.trans.yes()).clicked() {
                                     self.config.servers.remove(idx_to_delete);
                                     self.save_config();
-                                    self.delete_server_window = structs::DeleteServerWindow::default();
+                                    self.delete_server_window =
+                                        structs::DeleteServerWindow::default();
                                 }
                                 if ui.button(self.trans.no()).clicked() {
-                                    self.delete_server_window = structs::DeleteServerWindow::default();
+                                    self.delete_server_window =
+                                        structs::DeleteServerWindow::default();
                                 }
                             });
                         });
@@ -567,139 +630,184 @@ impl Main<'_> {
             Modal::new(Id::new("edit_server_modal")).show(ctx, |ui| {
                 widgets::modal_label(ui, self.trans.edit_server());
 
-                    Grid::new("server_form")
-                        .num_columns(2)
-                        .spacing([40.0, 4.0])
-                        .striped(true)
-                        .show(ui, |ui| {
-                            let input_color = self.config.settings.theme.text_input_color();
+                Grid::new("server_form")
+                    .num_columns(2)
+                    .spacing([40.0, 4.0])
+                    .striped(true)
+                    .show(ui, |ui| {
+                        let input_color = self.config.settings.theme.text_input_color();
 
-                            ui.label(self.trans.name());
-                            ui.add(TextEdit::singleline(&mut self.edit_server_window.name_field).background_color(input_color));
-                            ui.end_row();
+                        ui.label(self.trans.name());
+                        ui.add(
+                            TextEdit::singleline(&mut self.edit_server_window.name_field)
+                                .background_color(input_color),
+                        );
+                        ui.end_row();
 
-                            ui.label(self.trans.server_address());
-                            ui.add(TextEdit::singleline(&mut self.edit_server_window.ip_field).background_color(input_color));
-                            ui.end_row();
+                        ui.label(self.trans.server_address());
+                        ui.add(
+                            TextEdit::singleline(&mut self.edit_server_window.ip_field)
+                                .background_color(input_color),
+                        );
+                        ui.end_row();
 
-                            ui.label(self.trans.port());
-                            let is_error = self.edit_server_window.port_field.parse::<u16>().is_err();
-                            let mut field = TextEdit::singleline(&mut self.edit_server_window.port_field);
-                            if is_error {
-                                field = field.text_color(Color32::from_rgb(255, 0, 0));
-                            }
-                            ui.add(field.background_color(input_color));
-                            ui.end_row();
-
-                            ui.label(self.trans.user());
-                            ui.add(TextEdit::singleline(&mut self.edit_server_window.user_field).background_color(input_color));
-                            ui.end_row();
-
-                            ui.label(self.trans.password());
-                            ui.add(TextEdit::singleline(&mut self.edit_server_window.password_field).background_color(input_color));
-                            ui.end_row();
-
-                            ui.label(self.trans.service_database());
-                            ui.add(TextEdit::singleline(&mut self.edit_server_window.service_database_field).background_color(input_color));
-                            ui.end_row();
-                        });
-
-                    let is_name_error = {
-                        if self.edit_server_window.name_field.is_empty() {
-                            ui.label(self.trans.name_is_required());
-                            true
-                        } else if self.edit_server_window.name_field.chars().count() > 32 {
-                            ui.label(self.trans.name_must_be_less_than_32_characters());
-                            true
-                        } else if self.config.servers.iter().any(|server| server.alias == self.edit_server_window.name_field && server.alias != self.edit_server_window.original_server.as_ref().unwrap().alias) {
-                            ui.label(self.trans.name_must_be_unique());
-                            true
-                        } else {
-                            false
+                        ui.label(self.trans.port());
+                        let is_error = self.edit_server_window.port_field.parse::<u16>().is_err();
+                        let mut field =
+                            TextEdit::singleline(&mut self.edit_server_window.port_field);
+                        if is_error {
+                            field = field.text_color(Color32::from_rgb(255, 0, 0));
                         }
-                    };
-                    let is_ip_error = {
-                        if self.edit_server_window.ip_field.is_empty() {
-                            ui.label(self.trans.ip_is_required());
-                            true
-                        } else {
-                            false
-                        }
-                    };
-                    let is_port_error = {
-                        if self.edit_server_window.port_field.is_empty() {
-                            ui.label(self.trans.port_is_required());
-                            true
-                        } else if self.edit_server_window.port_field.parse::<u16>().is_err() {
-                            ui.label(self.trans.incorrect_port_value());
-                            true
-                        } else {
-                            false
-                        }
-                    };
-                    let is_user_error = {
-                        if self.edit_server_window.user_field.is_empty() {
-                            ui.label(self.trans.user_is_required());
-                            true
-                        } else {
-                            false
-                        }
-                    };
+                        ui.add(field.background_color(input_color));
+                        ui.end_row();
 
-                    let is_service_database_error = {
-                        if self.add_server_window.service_database_field.is_empty() {
-                            ui.label(self.trans.service_database_is_required());
-                            true
-                        } else {
-                            false
-                        }
-                    };
+                        ui.label(self.trans.user());
+                        ui.add(
+                            TextEdit::singleline(&mut self.edit_server_window.user_field)
+                                .background_color(input_color),
+                        );
+                        ui.end_row();
 
-                    let enable_save_button = !is_name_error && !is_ip_error && !is_port_error && !is_user_error && !is_service_database_error;
+                        ui.label(self.trans.password());
+                        ui.add(
+                            TextEdit::singleline(&mut self.edit_server_window.password_field)
+                                .background_color(input_color),
+                        );
+                        ui.end_row();
 
-                    ui.with_layout(Layout::top_down(Align::RIGHT), |ui| {
-                        ui.separator();
-
-                        ui.horizontal(|ui| {
-                            if ui.add_enabled(enable_save_button, Button::new(self.trans.save())).clicked() {
-                                let server = structs::Server {
-                                    alias: self.edit_server_window.name_field.clone(),
-                                    ip: self.edit_server_window.ip_field.clone(),
-                                    port: self.edit_server_window.port_field.parse::<u16>().unwrap(),
-                                    user: self.edit_server_window.user_field.clone(),
-                                    password: self.edit_server_window.password_field.clone(),
-                                    service_database: self.edit_server_window.service_database_field.clone(),
-                                };
-                                let mut original_server_index: Option<usize> = None;
-
-                                let original_server = self.edit_server_window.original_server.clone().unwrap();
-                                let original_server_id = format!("server:{}:{}:{}", original_server.ip, original_server.port, original_server.user);
-
-                                for server_idx in 0..self.config.servers.len() {
-                                    let server_in_find = &self.config.servers[server_idx];
-                                    let id_string = format!("server:{}:{}:{}", server_in_find.ip, server_in_find.port, server_in_find.user);
-
-                                    if original_server_id == id_string {
-                                        original_server_index = Some(server_idx);
-                                    }
-                                }
-
-                                self.config.servers[original_server_index.unwrap()] = server;
-                                self.save_config();
-                                self.edit_server_window = structs::EditServerWindow::default();
-
-                                let dbs = self.db_manager.dbs.clone();
-                                let config = self.config.clone();
-
-                                self.runtime.spawn(async move {
-                                    Self::reload_server(original_server_index.unwrap(), config, dbs).await;
-                                });
-                            }
-                            if ui.button(self.trans.back()).clicked() {
-                                self.edit_server_window = structs::EditServerWindow::default();
-                            }
-                        });
+                        ui.label(self.trans.service_database());
+                        ui.add(
+                            TextEdit::singleline(
+                                &mut self.edit_server_window.service_database_field,
+                            )
+                            .background_color(input_color),
+                        );
+                        ui.end_row();
                     });
+
+                let is_name_error = {
+                    if self.edit_server_window.name_field.is_empty() {
+                        ui.label(self.trans.name_is_required());
+                        true
+                    } else if self.edit_server_window.name_field.chars().count() > 32 {
+                        ui.label(self.trans.name_must_be_less_than_32_characters());
+                        true
+                    } else if self.config.servers.iter().any(|server| {
+                        server.alias == self.edit_server_window.name_field
+                            && server.alias
+                                != self
+                                    .edit_server_window
+                                    .original_server
+                                    .as_ref()
+                                    .unwrap()
+                                    .alias
+                    }) {
+                        ui.label(self.trans.name_must_be_unique());
+                        true
+                    } else {
+                        false
+                    }
+                };
+                let is_ip_error = {
+                    if self.edit_server_window.ip_field.is_empty() {
+                        ui.label(self.trans.ip_is_required());
+                        true
+                    } else {
+                        false
+                    }
+                };
+                let is_port_error = {
+                    if self.edit_server_window.port_field.is_empty() {
+                        ui.label(self.trans.port_is_required());
+                        true
+                    } else if self.edit_server_window.port_field.parse::<u16>().is_err() {
+                        ui.label(self.trans.incorrect_port_value());
+                        true
+                    } else {
+                        false
+                    }
+                };
+                let is_user_error = {
+                    if self.edit_server_window.user_field.is_empty() {
+                        ui.label(self.trans.user_is_required());
+                        true
+                    } else {
+                        false
+                    }
+                };
+
+                let is_service_database_error = {
+                    if self.add_server_window.service_database_field.is_empty() {
+                        ui.label(self.trans.service_database_is_required());
+                        true
+                    } else {
+                        false
+                    }
+                };
+
+                let enable_save_button = !is_name_error
+                    && !is_ip_error
+                    && !is_port_error
+                    && !is_user_error
+                    && !is_service_database_error;
+
+                ui.with_layout(Layout::top_down(Align::RIGHT), |ui| {
+                    ui.separator();
+
+                    ui.horizontal(|ui| {
+                        if ui
+                            .add_enabled(enable_save_button, Button::new(self.trans.save()))
+                            .clicked()
+                        {
+                            let server = structs::Server {
+                                alias: self.edit_server_window.name_field.clone(),
+                                ip: self.edit_server_window.ip_field.clone(),
+                                port: self.edit_server_window.port_field.parse::<u16>().unwrap(),
+                                user: self.edit_server_window.user_field.clone(),
+                                password: self.edit_server_window.password_field.clone(),
+                                service_database: self
+                                    .edit_server_window
+                                    .service_database_field
+                                    .clone(),
+                            };
+                            let mut original_server_index: Option<usize> = None;
+
+                            let original_server =
+                                self.edit_server_window.original_server.clone().unwrap();
+                            let original_server_id = format!(
+                                "server:{}:{}:{}",
+                                original_server.ip, original_server.port, original_server.user
+                            );
+
+                            for server_idx in 0..self.config.servers.len() {
+                                let server_in_find = &self.config.servers[server_idx];
+                                let id_string = format!(
+                                    "server:{}:{}:{}",
+                                    server_in_find.ip, server_in_find.port, server_in_find.user
+                                );
+
+                                if original_server_id == id_string {
+                                    original_server_index = Some(server_idx);
+                                }
+                            }
+
+                            self.config.servers[original_server_index.unwrap()] = server;
+                            self.save_config();
+                            self.edit_server_window = structs::EditServerWindow::default();
+
+                            let dbs = self.db_manager.dbs.clone();
+                            let config = self.config.clone();
+
+                            self.runtime.spawn(async move {
+                                Self::reload_server(original_server_index.unwrap(), config, dbs)
+                                    .await;
+                            });
+                        }
+                        if ui.button(self.trans.back()).clicked() {
+                            self.edit_server_window = structs::EditServerWindow::default();
+                        }
+                    });
+                });
             });
         }
 
@@ -709,22 +817,31 @@ impl Main<'_> {
 
                 widgets::modal_label(ui, self.trans.text_viewer());
 
-                ui.set_width(if screen_rect.height() / 1.5 > 380.0 { screen_rect.height() / 1.5 } else { 380.0 });
-
-                ScrollArea::both().max_height(screen_rect.height() / 1.5).show(ui, |ui| {
-                    ui.label(self.sql_response_copy_window.response.clone().unwrap());
+                ui.set_width(if screen_rect.height() / 1.5 > 380.0 {
+                    screen_rect.height() / 1.5
+                } else {
+                    380.0
                 });
+
+                ScrollArea::both()
+                    .max_height(screen_rect.height() / 1.5)
+                    .show(ui, |ui| {
+                        ui.label(self.sql_response_copy_window.response.clone().unwrap());
+                    });
 
                 ui.with_layout(Layout::top_down(Align::RIGHT), |ui| {
                     ui.separator();
 
                     ui.horizontal(|ui| {
                         if ui.button(self.trans.copy()).clicked() {
-                            ui.ctx().copy_text(self.sql_response_copy_window.response.clone().unwrap());
-                            self.sql_response_copy_window = structs::SQLResponseCopyWindow::default();
+                            ui.ctx()
+                                .copy_text(self.sql_response_copy_window.response.clone().unwrap());
+                            self.sql_response_copy_window =
+                                structs::SQLResponseCopyWindow::default();
                         }
                         if ui.button(self.trans.close()).clicked() {
-                            self.sql_response_copy_window = structs::SQLResponseCopyWindow::default();
+                            self.sql_response_copy_window =
+                                structs::SQLResponseCopyWindow::default();
                         }
                     });
                 });
@@ -746,56 +863,59 @@ impl Main<'_> {
                 widgets::modal_label(ui, self.trans.settings());
 
                 Grid::new("settings_form")
-                        .num_columns(2)
-                        .spacing([40.0, 4.0])
-                        .striped(true)
-                        .show(ui, |ui| {
-                            ui.label(self.trans.scale_factor());
-                            ui.add(Slider::new(&mut self.settings_window.scale_factor, 1.0..=1.5));
-                            ui.end_row();
+                    .num_columns(2)
+                    .spacing([40.0, 4.0])
+                    .striped(true)
+                    .show(ui, |ui| {
+                        ui.label(self.trans.scale_factor());
+                        ui.add(Slider::new(
+                            &mut self.settings_window.scale_factor,
+                            1.0..=1.5,
+                        ));
+                        ui.end_row();
 
-                            ui.with_layout(Layout::top_down(Align::LEFT), |ui| {
-                                ui.label(self.trans.theme());
-                            });
-                            let theme_name = match self.settings_window.theme {
-                                structs::Theme::Light => self.trans.light(),
-                                structs::Theme::Dark => self.trans.dark(),
-                                structs::Theme::NotInited => "".to_string(),
-                            };
-                            CollapsingHeader::new(theme_name).show(ui, |ui| {
-                                if ui.button(self.trans.dark()).clicked() {
-                                    self.settings_window.theme = structs::Theme::Dark;
-                                }
-                                if ui.button(self.trans.light()).clicked() {
-                                    self.settings_window.theme = structs::Theme::Light;
-                                }
-                            });
-                            ui.end_row();
-
-                            ui.with_layout(Layout::top_down(Align::LEFT), |ui| {
-                                ui.label(self.trans.language());
-                            });
-                            let language_name = match self.settings_window.language {
-                                Some(translates::Language::English) => "English".to_string(),
-                                Some(translates::Language::Russian) => "Russian".to_string(),
-                                None => "".to_string(),
-                            };
-                            CollapsingHeader::new(language_name).show(ui, |ui| {
-                                if ui.button("English").clicked() {
-                                    self.settings_window.language = Some(translates::Language::English);
-                                }
-                                if ui.button("Russian").clicked() {
-                                    self.settings_window.language = Some(translates::Language::Russian);
-                                }
-                            });
-                            ui.end_row();
-
-                            ui.label(self.trans.change_password());
-                            if ui.button(self.trans.change_password()).clicked() {
-                                self.change_password_window.show = true;
-                                self.settings_window = structs::SettingsWindow::default();
+                        ui.with_layout(Layout::top_down(Align::LEFT), |ui| {
+                            ui.label(self.trans.theme());
+                        });
+                        let theme_name = match self.settings_window.theme {
+                            structs::Theme::Light => self.trans.light(),
+                            structs::Theme::Dark => self.trans.dark(),
+                            structs::Theme::NotInited => "".to_string(),
+                        };
+                        CollapsingHeader::new(theme_name).show(ui, |ui| {
+                            if ui.button(self.trans.dark()).clicked() {
+                                self.settings_window.theme = structs::Theme::Dark;
+                            }
+                            if ui.button(self.trans.light()).clicked() {
+                                self.settings_window.theme = structs::Theme::Light;
                             }
                         });
+                        ui.end_row();
+
+                        ui.with_layout(Layout::top_down(Align::LEFT), |ui| {
+                            ui.label(self.trans.language());
+                        });
+                        let language_name = match self.settings_window.language {
+                            Some(translates::Language::English) => "English".to_string(),
+                            Some(translates::Language::Russian) => "Russian".to_string(),
+                            None => "".to_string(),
+                        };
+                        CollapsingHeader::new(language_name).show(ui, |ui| {
+                            if ui.button("English").clicked() {
+                                self.settings_window.language = Some(translates::Language::English);
+                            }
+                            if ui.button("Russian").clicked() {
+                                self.settings_window.language = Some(translates::Language::Russian);
+                            }
+                        });
+                        ui.end_row();
+
+                        ui.label(self.trans.change_password());
+                        if ui.button(self.trans.change_password()).clicked() {
+                            self.change_password_window.show = true;
+                            self.settings_window = structs::SettingsWindow::default();
+                        }
+                    });
 
                 ui.with_layout(Layout::top_down(Align::RIGHT), |ui| {
                     ui.separator();
@@ -804,7 +924,8 @@ impl Main<'_> {
                         if ui.button(self.trans.save()).clicked() {
                             self.config.settings.scale_factor = self.settings_window.scale_factor;
                             self.config.settings.theme = self.settings_window.theme.clone();
-                            self.config.settings.language = self.settings_window.language.clone().unwrap();
+                            self.config.settings.language =
+                                self.settings_window.language.clone().unwrap();
 
                             self.settings_window = structs::SettingsWindow::default();
 
@@ -834,45 +955,66 @@ impl Main<'_> {
                         let input_color = self.config.settings.theme.text_input_color();
 
                         ui.label(self.trans.old_password());
-                        ui.add(TextEdit::singleline(&mut self.change_password_window.old_password)
-                            .password(true)
-                            .background_color(input_color));
+                        ui.add(
+                            TextEdit::singleline(&mut self.change_password_window.old_password)
+                                .password(true)
+                                .background_color(input_color),
+                        );
                         ui.end_row();
 
                         ui.label(self.trans.new_password());
-                        ui.add(TextEdit::singleline(&mut self.change_password_window.new_password)
-                            .password(true)
-                            .background_color(input_color));
+                        ui.add(
+                            TextEdit::singleline(&mut self.change_password_window.new_password)
+                                .password(true)
+                                .background_color(input_color),
+                        );
                         ui.end_row();
 
                         ui.label(self.trans.confirm_password());
-                        ui.add(TextEdit::singleline(&mut self.change_password_window.confirm_password)
-                            .password(true)
-                            .background_color(input_color));
+                        ui.add(
+                            TextEdit::singleline(&mut self.change_password_window.confirm_password)
+                                .password(true)
+                                .background_color(input_color),
+                        );
                         ui.end_row();
                     });
 
-                let is_passwords_match_error = self.change_password_window.new_password != self.change_password_window.confirm_password;
+                let is_passwords_match_error = self.change_password_window.new_password
+                    != self.change_password_window.confirm_password;
 
                 if is_passwords_match_error {
-                    ui.label(RichText::new(self.trans.passwords_do_not_match()).color(Color32::RED));
+                    ui.label(
+                        RichText::new(self.trans.passwords_do_not_match()).color(Color32::RED),
+                    );
                 }
 
                 ui.with_layout(Layout::top_down(Align::RIGHT), |ui| {
                     ui.separator();
 
                     ui.horizontal(|ui| {
-                        if ui.add_enabled(!is_passwords_match_error, Button::new(self.trans.save())).clicked() {
-                            let new_password_hash = utils::create_checksum(&self.change_password_window.new_password);
+                        if ui
+                            .add_enabled(!is_passwords_match_error, Button::new(self.trans.save()))
+                            .clicked()
+                        {
+                            let new_password_hash =
+                                utils::create_checksum(&self.change_password_window.new_password);
 
-                            if self.config.password_hash.is_some() && self.config.password_hash.clone().unwrap() == utils::create_checksum(&self.change_password_window.old_password) {
-                                self.password = Some(self.change_password_window.new_password.clone());
+                            if self.config.password_hash.is_some()
+                                && self.config.password_hash.clone().unwrap()
+                                    == utils::create_checksum(
+                                        &self.change_password_window.old_password,
+                                    )
+                            {
+                                self.password =
+                                    Some(self.change_password_window.new_password.clone());
                                 self.config.password_hash = Some(new_password_hash);
                                 self.save_config();
 
-                                self.change_password_window = structs::ChangePasswordWindow::default();
+                                self.change_password_window =
+                                    structs::ChangePasswordWindow::default();
                             } else {
-                                self.change_password_window.error = Some(self.trans.incorrect_password_hash_mismatch());
+                                self.change_password_window.error =
+                                    Some(self.trans.incorrect_password_hash_mismatch());
                             }
                         }
                         if ui.button(self.trans.close()).clicked() {
@@ -889,7 +1031,8 @@ impl Main<'_> {
             for (idx, page) in self.pages.pages.iter_mut().enumerate() {
                 let mut button_title = page.title.clone();
                 if button_title.chars().count() > 16 {
-                    button_title = format!("{}...", &button_title.chars().take(16).collect::<String>());
+                    button_title =
+                        format!("{}...", &button_title.chars().take(16).collect::<String>());
                 }
 
                 let btn = ui.button(&button_title);
@@ -926,7 +1069,6 @@ impl Main<'_> {
                 }
             }
         });
-
 
         CentralPanel::default().show(ctx, |ui| {
             ScrollArea::both()
@@ -1229,10 +1371,10 @@ impl Main<'_> {
                                                             ui.separator();
 
                                                             ui.label(format!(
-                                                                "{}/{}; {}..{}", 
-                                                                result.page_index + 1, 
+                                                                "{}/{}; {}..{}",
+                                                                result.page_index + 1,
                                                                 pages_count,
-                                                                result.page_index * ROWS_PER_PAGE as u32, 
+                                                                result.page_index * ROWS_PER_PAGE as u32,
                                                                 if result.page_index == pages_count - 1 {
                                                                     result.rows_count
                                                                 } else {
@@ -1362,9 +1504,10 @@ impl App for Main<'_> {
                         ui.label(self.trans.create_encryption_password());
                     }
 
-                    TextEdit::singleline(&mut self.login_window.password).background_color(
-                        self.config.settings.theme.text_input_color()
-                    ).password(true).show(ui);
+                    TextEdit::singleline(&mut self.login_window.password)
+                        .background_color(self.config.settings.theme.text_input_color())
+                        .password(true)
+                        .show(ui);
                 });
 
                 ui.with_layout(Layout::top_down(Align::RIGHT), |ui| {
@@ -1374,11 +1517,19 @@ impl App for Main<'_> {
                     ui.with_layout(Layout::top_down(Align::RIGHT), |ui| {
                         ui.horizontal(|ui| {
                             if !self.config.servers.is_empty() {
-                                if ui.button(RichText::new(self.trans.clear_storage()).color(Color32::RED)).clicked() {
+                                if ui
+                                    .button(
+                                        RichText::new(self.trans.clear_storage())
+                                            .color(Color32::RED),
+                                    )
+                                    .clicked()
+                                {
                                     self.login_window.clear_storage = true;
                                 }
                             }
-                            if ui.button(self.trans.login()).clicked() || (ui.input(|i| i.key_pressed(Key::Enter))) {
+                            if ui.button(self.trans.login()).clicked()
+                                || (ui.input(|i| i.key_pressed(Key::Enter)))
+                            {
                                 let password = self.login_window.password.clone();
 
                                 self.login_window.error = None;
@@ -1387,8 +1538,11 @@ impl App for Main<'_> {
                                 ui.spinner();
 
                                 if self.config.password_hash.is_some() {
-                                    if utils::create_checksum(&password) != self.config.password_hash.clone().unwrap() {
-                                        self.login_window.error = Some(self.trans.incorrect_password_hash_mismatch());
+                                    if utils::create_checksum(&password)
+                                        != self.config.password_hash.clone().unwrap()
+                                    {
+                                        self.login_window.error =
+                                            Some(self.trans.incorrect_password_hash_mismatch());
                                     }
                                 }
 
@@ -1399,7 +1553,8 @@ impl App for Main<'_> {
                                     self.login_window.show = false;
 
                                     if self.config.password_hash.is_none() {
-                                        self.config.password_hash = Some(utils::create_checksum(&password));
+                                        self.config.password_hash =
+                                            Some(utils::create_checksum(&password));
                                         self.save_config();
                                     }
                                 }
@@ -1563,18 +1718,18 @@ impl App for Main<'_> {
                     }
                 });
 
-                ui.add_space(32.0);
+            ui.add_space(32.0);
 
-                ui.with_layout(Layout::bottom_up(Align::LEFT), |ui| {
-                    ui.add_space(4.0);
+            ui.with_layout(Layout::bottom_up(Align::LEFT), |ui| {
+                ui.add_space(4.0);
 
-                    if ui.button(self.trans.settings()).clicked() {
-                        self.settings_window.show = true;
-                    }
+                if ui.button(self.trans.settings()).clicked() {
+                    self.settings_window.show = true;
+                }
 
-                    ui.separator();
-                });
+                ui.separator();
             });
+        });
 
         self.update_windows(ctx, _frame);
         self.update_pages(ctx, _frame);

@@ -150,7 +150,7 @@ impl Database {
                         .unwrap_or(ValueType::Null),
 
                     // Array types (basic handling)
-                    typ if typ.starts_with("_") => row
+                    typ if typ.starts_with("_") || typ.ends_with("[]") => row
                         .try_get::<Vec<String>, _>(column_name.as_str())
                         .map(|v| ValueType::Array(v.into_iter().map(ValueType::Text).collect()))
                         .unwrap_or(ValueType::Null),

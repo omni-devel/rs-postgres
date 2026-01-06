@@ -67,7 +67,11 @@ impl Theme {
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { scale_factor: 1.125, theme: Theme::NotInited, language: Language::English }
+        Self {
+            scale_factor: 1.125,
+            theme: Theme::NotInited,
+            language: Language::English,
+        }
     }
 }
 
@@ -236,11 +240,29 @@ impl ValueType {
             ValueType::BigInt(big_int) => big_int.to_string(),
             ValueType::Float(float) => float.to_string(),
             ValueType::Bool(bool) => bool.to_string(),
-            ValueType::Bytea(items) => items
-                .iter()
-                .map(|item| item.to_string())
-                .collect::<Vec<String>>()
-                .join(", "),
+            ValueType::Bytea(items) => {
+                if items.len() > 20 {
+                    let start = items[..10]
+                        .iter()
+                        .map(|item| item.to_string())
+                        .collect::<Vec<String>>()
+                        .join(", ");
+
+                    let end = items[items.len() - 10..]
+                        .iter()
+                        .map(|item| item.to_string())
+                        .collect::<Vec<String>>()
+                        .join(", ");
+
+                    format!("{}, ..., {}", start, end)
+                } else {
+                    items
+                        .iter()
+                        .map(|item| item.to_string())
+                        .collect::<Vec<String>>()
+                        .join(", ")
+                }
+            }
             ValueType::Array(value_types) => value_types
                 .iter()
                 .map(|item| item.to_string())
