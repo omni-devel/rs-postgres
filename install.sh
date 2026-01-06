@@ -69,6 +69,7 @@ Exec=$HOME/.local/bin/rs-postgres
 Icon=$HOME/.local/share/rs-postgres/logo.png
 Type=Application
 Description=Rs-Postgres is a fast and lightweight Rust-based PostgreSQL client with GUI.
+StartupWMClass=rs-postgres
 EOF
 )
 

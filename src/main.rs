@@ -1,7 +1,7 @@
-mod frames;
 mod data;
-mod utils;
 mod database;
+mod frames;
+mod utils;
 
 use eframe::NativeOptions;
 use env_logger::Builder;
@@ -28,16 +28,20 @@ fn main() {
 
     let mut options = NativeOptions::default();
     options.viewport = egui::ViewportBuilder::default()
+        .with_app_id("rs-postgres")
+        .with_inner_size([1024.0, 768.0])
         .with_min_inner_size([1024.0, 768.0])
         .with_icon(utils::load_icon());
 
     eframe::run_native(
-        format!("Rs-Postgres {} {}", env!("CARGO_PKG_VERSION"), if debug {
-            "(Debug mode)"
-        } else {
-            ""
-        }).as_str(),
+        format!(
+            "Rs-Postgres {} {}",
+            env!("CARGO_PKG_VERSION"),
+            if debug { "(Debug mode)" } else { "" }
+        )
+        .as_str(),
         options,
         Box::new(|cc| Ok(Box::new(frames::Main::new(&cc.egui_ctx, debug)))),
-    ).unwrap();
+    )
+    .unwrap();
 }
